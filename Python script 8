@@ -1,0 +1,200 @@
+# Part 1: Data Loading and Basic Exploration
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import streamlit as st
+from collections import Counter
+import re
+
+# Set a style for better-looking plots
+sns.set_style("whitegrid")
+plt.style.use('seaborn-v0_8-deep')
+
+# Load the metadata.csv file
+try:
+    df = pd.read_csv('metadata.csv', low_memory=False)
+    print("--- Part 1: Data Loading and Basic Exploration ---")
+    print("Data loaded successfully.")
+except FileNotFoundError:
+    print("Error: metadata.csv not found. Please ensure the file is in the same directory.")
+    exit()
+
+# Examine the first few rows
+print("\nFirst 5 rows of the DataFrame:")
+print(df.head())
+
+# Check the DataFrame dimensions
+print("\nDataFrame dimensions (rows, columns):", df.shape)
+
+# Identify data types of each column and non-null counts
+print("\nDataFrame Info (Data Types and Non-Nulls):")
+print(df.info())
+
+# Check for missing values in important columns
+print("\nMissing values per column:")
+print(df.isnull().sum())
+
+# Generate basic statistics for numerical columns
+print("\nDescriptive statistics for numerical columns:")
+print(df.describe())
+
+# --- Part 2: Data Cleaning and Preparation ---
+
+print("\n--- Part 2: Data Cleaning and Preparation ---")
+
+# Handle missing data: drop columns with more than 50% missing values
+threshold = 0.5 * len(df)
+df_cleaned = df.dropna(thresh=threshold, axis=1)
+print("\nShape after dropping columns with >50% missing values:", df_cleaned.shape)
+
+# Handle missing values in 'title' and 'abstract'
+df_cleaned['title'] = df_cleaned['title'].fillna('No Title')
+df_cleaned['abstract'] = df_cleaned['abstract'].fillna('No Abstract')
+
+# Convert 'publish_time' to datetime format
+df_cleaned['publish_time'] = pd.to_datetime(df_cleaned['publish_time'], errors='coerce')
+print("\n'publish_time' column converted to datetime.")
+
+# Extract year from publication date
+df_cleaned['publish_year'] = df_cleaned['publish_time'].dt.year
+
+# Create new columns: abstract and title word counts
+df_cleaned['abstract_word_count'] = df_cleaned['abstract'].apply(lambda x: len(str(x).split()))
+df_cleaned['title_word_count'] = df_cleaned['title'].apply(lambda x: len(str(x).split()))
+
+# Drop rows with null values in the 'publish_year'
+df_cleaned.dropna(subset=['publish_year'], inplace=True)
+df_cleaned['publish_year'] = df_cleaned['publish_year'].astype(int)
+
+print("\nCleaned DataFrame info:")
+print(df_cleaned.info())
+
+# --- Part 3: Data Analysis and Visualization ---
+
+print("\n--- Part 3: Data Analysis and Visualization ---")
+
+# Count papers by publication year
+papers_by_year = df_cleaned['publish_year'].value_counts().sort_index()
+print("\nNumber of papers published by year:\n", papers_by_year)
+
+# Identify top journals
+top_journals = df_cleaned['journal'].value_counts().head(10)
+print("\nTop 10 journals:\n", top_journals)
+
+# Find most frequent words in titles
+all_titles = ' '.join(df_cleaned['title'].values)
+words = re.findall(r'\b\w+\b', all_titles.lower())
+stopwords = set(['the', 'and', 'of', 'in', 'to', 'a', 'with', 'on', 'for', 'from', 'an', 'as', 'is', 'at', 'by', 'are', 'was', 'were', 'which', 'that', 'this', 'have', 'had', 'has', 'its', 'itself', 'it', 'from', 'be'])
+filtered_words = [word for word in words if word not in stopwords and len(word) > 2]
+word_counts = Counter(filtered_words)
+print("\nTop 20 most frequent words in titles:")
+print(word_counts.most_common(20))
+
+# Create visualizations
+fig1, ax1 = plt.subplots(figsize=(10, 6))
+papers_by_year.plot(kind='bar', ax=ax1, color='skyblue')
+ax1.set_title('Number of Publications Over Time')
+ax1.set_xlabel('Publication Year')
+ax1.set_ylabel('Number of Papers')
+plt.show()
+
+fig2, ax2 = plt.subplots(figsize=(12, 8))
+sns.barplot(x=top_journals.values, y=top_journals.index, palette='viridis', ax=ax2)
+ax2.set_title('Top 10 Publishing Journals')
+ax2.set_xlabel('Number of Publications')
+ax2.set_ylabel('Journal')
+plt.show()
+
+# --- Part 4: Streamlit Application ---
+
+# This part is a separate script file (e.g., app.py)
+# To run this, save the following code in a file named `app.py`
+# and run `streamlit run app.py` from your terminal.
+
+"""
+# app.py
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from collections import Counter
+import re
+
+@st.cache_data
+def load_data():
+    try:
+        df = pd.read_csv('metadata.csv', low_memory=False)
+        return df
+    except FileNotFoundError:
+        st.error("Error: metadata.csv not found. Please ensure the file is in the same directory.")
+        return None
+
+def clean_data(df):
+    threshold = 0.5 * len(df)
+    df_cleaned = df.dropna(thresh=threshold, axis=1)
+    df_cleaned['publish_time'] = pd.to_datetime(df_cleaned['publish_time'], errors='coerce')
+    df_cleaned['publish_year'] = df_cleaned['publish_time'].dt.year
+    df_cleaned.dropna(subset=['publish_year'], inplace=True)
+    df_cleaned['publish_year'] = df_cleaned['publish_year'].astype(int)
+    return df_cleaned
+
+st.title("CORD-19 Data Explorer 📄🔍")
+st.write("An interactive dashboard to explore COVID-19 research papers using the metadata from the CORD-19 dataset.")
+
+df_raw = load_data()
+
+if df_raw is not None:
+    df = clean_data(df_raw.copy())
+
+    # Sidebar for filters
+    st.sidebar.header("Filter Options")
+    min_year = int(df['publish_year'].min())
+    max_year = int(df['publish_year'].max())
+    year_range = st.sidebar.slider(
+        "Select Publication Year Range",
+        min_year, max_year, (min_year, max_year)
+    )
+
+    filtered_df = df[(df['publish_year'] >= year_range[0]) & (df['publish_year'] <= year_range[1])]
+
+    st.header("1. Publications Over Time 📈")
+    papers_by_year = filtered_df['publish_year'].value_counts().sort_index()
+    fig1, ax1 = plt.subplots()
+    sns.barplot(x=papers_by_year.index, y=papers_by_year.values, palette='Blues_d', ax=ax1)
+    ax1.set_title('Number of Publications by Year')
+    ax1.set_xlabel('Publication Year')
+    ax1.set_ylabel('Number of Papers')
+    st.pyplot(fig1)
+
+    st.header("2. Top 10 Publishing Journals 📰")
+    top_journals = filtered_df['journal'].value_counts().head(10)
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    sns.barplot(x=top_journals.values, y=top_journals.index, palette='Greens_d', ax=ax2)
+    ax2.set_title('Top 10 Publishing Journals')
+    ax2.set_xlabel('Number of Publications')
+    ax2.set_ylabel('Journal')
+    st.pyplot(fig2)
+
+    st.header("3. Sample of Filtered Data 📊")
+    st.dataframe(filtered_df[['publish_year', 'title', 'journal', 'authors']].head(10))
+"""
+
+# --- Part 5: Documentation and Reflection ---
+
+# Findings and Observations:
+# The initial exploration revealed a large number of rows and columns, with significant missing data.
+# The 'abstract' and 'title' columns had some missing values, which were handled by filling with a placeholder.
+# The 'publish_time' column was in a string format and needed to be converted to datetime to enable time-based analysis.
+# The distribution of publications is heavily skewed towards later years (2020-2021), reflecting the global focus on COVID-19 research.
+# Top journals were identified, showing which publications are central to this field of research.
+
+# Challenges and Learning:
+# - Handling large datasets: The CORD-19 dataset is massive. Using `low_memory=False` in pandas `read_csv` and working with a cleaned subset was crucial.
+# - Data type conversion: The `publish_time` column had inconsistent formats, requiring the `errors='coerce'` parameter to handle parsing errors gracefully.
+# - Streamlit integration: Setting up a Streamlit app and linking it to the pandas workflow required separating the analysis logic into functions to work with Streamlit's caching and rerunning mechanisms.
+# - Debugging: Incrementally testing each part of the code (data loading, cleaning, plotting) was essential for a smooth workflow.
+
+# Conclusion:
+# This project successfully demonstrates a full data science workflow, from raw data to an interactive application. The process highlights the importance of data cleaning, exploratory analysis, and visualization in deriving meaningful insights.
